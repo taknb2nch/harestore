@@ -36,8 +36,11 @@ type Entity interface {
 
 	SetCreatedAt(createdAt time.Time)
 	SetUpdatedAt(updatedAt time.Time)
-	SetVersionNo(versionNo int)
-	GetVersionNo() int
+}
+
+type Versioner interface {
+	SetVersion(version int)
+	GetVersion() int
 }
 
 // PEntity indicates that the pointer of T implements Entity.
@@ -355,7 +358,10 @@ func (c *Client[T, PT]) InsertMulti(ctx context.Context, entities []*T) ([]strin
 
 				entity.SetCreatedAt(now)
 				entity.SetUpdatedAt(now)
-				entity.SetVersionNo(1)
+
+				if v, ok := any(entity).(Versioner); ok {
+					v.SetVersion(1)
+				}
 
 				key := newID(entity.KindName(), entity.GetID())
 
@@ -464,7 +470,10 @@ func (c *Client[T, PT]) UpdateMulti(ctx context.Context, entities []*T) error {
 				}
 
 				entity.SetUpdatedAt(now)
-				entity.SetVersionNo(entity.GetVersionNo() + 1)
+
+				if v, ok := any(entity).(Versioner); ok {
+					v.SetVersion(v.GetVersion() + 1)
+				}
 
 				key := newID(entity.KindName(), entity.GetID())
 
