@@ -378,12 +378,27 @@ func (c *Client[T, PT]) InsertMulti(ctx context.Context, entities []*T) ([]strin
 		end := min(i+batchSizeMutate, len(entities))
 
 		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			targetIDs := allIDs[start:end]
 			targetErrSlice := combinedErr[start:end]
+			targetIDs := allIDs[start:end]
 			batchEntities := entities[start:end]
+
+			select {
+			case sem <- struct{}{}:
+				defer func() {
+					<-sem
+				}()
+
+			case <-ctx.Done():
+				atomic.StoreInt32(&hasError, 1)
+
+				err := ctx.Err()
+
+				for i := range targetErrSlice {
+					targetErrSlice[i] = err
+				}
+
+				return
+			}
 
 			validKeys := make([]*datastore.Key, 0, len(batchEntities))
 			validEntities := make([]*T, 0, len(batchEntities))
@@ -495,11 +510,26 @@ func (c *Client[T, PT]) UpdateMulti(ctx context.Context, entities []*T) error {
 		end := min(i+batchSizeMutate, len(entities))
 
 		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
 			targetErrSlice := combinedErr[start:end]
 			batchEntities := entities[start:end]
+
+			select {
+			case sem <- struct{}{}:
+				defer func() {
+					<-sem
+				}()
+
+			case <-ctx.Done():
+				atomic.StoreInt32(&hasError, 1)
+
+				err := ctx.Err()
+
+				for i := range targetErrSlice {
+					targetErrSlice[i] = err
+				}
+
+				return
+			}
 
 			validKeys := make([]*datastore.Key, 0, len(batchEntities))
 			validEntities := make([]*T, 0, len(batchEntities))
@@ -614,11 +644,26 @@ func (c *Client[T, PT]) DeleteMultiByID(ctx context.Context, ids []string) error
 		end := min(i+batchSizeMutate, len(ids))
 
 		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
 			targetErrSlice := combinedErr[start:end]
 			batchIds := ids[start:end]
+
+			select {
+			case sem <- struct{}{}:
+				defer func() {
+					<-sem
+				}()
+
+			case <-ctx.Done():
+				atomic.StoreInt32(&hasError, 1)
+
+				err := ctx.Err()
+
+				for i := range targetErrSlice {
+					targetErrSlice[i] = err
+				}
+
+				return
+			}
 
 			validKeys := make([]*datastore.Key, 0, len(batchIds))
 			validIndices := make([]int, 0, len(batchIds))
@@ -697,11 +742,26 @@ func (c *Client[T, PT]) DeleteMulti(ctx context.Context, entities []*T) error {
 		end := min(i+batchSizeMutate, len(entities))
 
 		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
 			targetErrSlice := combinedErr[start:end]
 			batchEntities := entities[start:end]
+
+			select {
+			case sem <- struct{}{}:
+				defer func() {
+					<-sem
+				}()
+
+			case <-ctx.Done():
+				atomic.StoreInt32(&hasError, 1)
+
+				err := ctx.Err()
+
+				for i := range targetErrSlice {
+					targetErrSlice[i] = err
+				}
+
+				return
+			}
 
 			validKeys := make([]*datastore.Key, 0, len(batchEntities))
 			validIndices := make([]int, 0, len(batchEntities))
@@ -812,17 +872,17 @@ func (c *Client[T, PT]) DeleteByRawQuery(ctx context.Context, q *datastore.Query
 		return ErrInvalidQuery
 	}
 
-	q = q.KeysOnly()
-
-	if tx, ok := extractTransactionFromContext(ctx); ok {
-		q = q.Transaction(tx)
-	}
-
 	if c.config.globalTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.config.globalTimeout)
 
 		defer cancel()
+	}
+
+	q = q.KeysOnly()
+
+	if tx, ok := extractTransactionFromContext(ctx); ok {
+		q = q.Transaction(tx)
 	}
 
 	it := c.Raw.Run(ctx, q)
@@ -872,13 +932,28 @@ func (c *Client[T, PT]) DeleteByRawQuery(ctx context.Context, q *datastore.Query
 	}()
 
 	executeBatch := func(keys []*datastore.Key) {
-		sem <- struct{}{}
-		defer func() {
-			<-sem
-			wg.Done()
-		}()
+		defer wg.Done()
 
 		// 既に誰かが致命的なエラーを踏んでいたら、処理せず帰る（無駄な抵抗はしない）
+		if atomic.LoadInt32(&stopSignal) == 1 {
+			return
+		}
+
+		select {
+		case sem <- struct{}{}:
+			defer func() {
+				<-sem
+			}()
+
+		case <-ctx.Done():
+			select {
+			case errChan <- ctx.Err():
+			default:
+			}
+
+			return
+		}
+
 		if atomic.LoadInt32(&stopSignal) == 1 {
 			return
 		}
