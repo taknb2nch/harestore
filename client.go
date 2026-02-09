@@ -1016,7 +1016,14 @@ func (c *Client[T, PT]) DeleteByRawQuery(ctx context.Context, q *datastore.Query
 
 // executePutBatch executes put operation for keys and entities.
 func (c *Client[T, PT]) executePutBatch(ctx context.Context, keys []*datastore.Key, entities []*T) error {
-	// TODO: 引数チェック
+	if len(keys) != len(entities) {
+		return fmt.Errorf("keys and entities count mismatch : %d and %d", len(keys), len(entities))
+	}
+
+	if len(keys) == 0 {
+		return nil
+	}
+
 	if c.config.batchTimeout > 0 {
 		var cancel context.CancelFunc
 
