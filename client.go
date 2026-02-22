@@ -77,7 +77,7 @@ type Creator interface {
 }
 
 // Updater allows the entity to automatically record its last update time.
-type Updator interface {
+type Updater interface {
 	SetUpdatedAt(updatedAt time.Time)
 }
 
@@ -571,7 +571,7 @@ func (c *Client[T, PT]) UpdateMulti(ctx context.Context, entities []*T) error {
 					continue
 				}
 
-				if v, ok := any(entity).(Updator); ok {
+				if v, ok := any(entity).(Updater); ok {
 					v.SetUpdatedAt(now)
 				}
 
