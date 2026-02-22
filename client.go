@@ -64,16 +64,24 @@ var (
 	ErrInvalidEntity = errors.New("harestore: entity cannot be nil")
 )
 
-// Entity represents an Entity.
+// Entity is the minimal requirement for an object to be stored in Datastore.
 type Entity interface {
 	KindName() string
 	GetID() string
 	SetID(id string)
+}
 
+// Creator allows the entity to automatically record its creation time.
+type Creator interface {
 	SetCreatedAt(createdAt time.Time)
+}
+
+// Updater allows the entity to automatically record its last update time.
+type Updator interface {
 	SetUpdatedAt(updatedAt time.Time)
 }
 
+// Versioner enables optimistic concurrency control for the entity.
 type Versioner interface {
 	SetVersion(version int)
 	GetVersion() int
@@ -427,8 +435,9 @@ func (c *Client[T, PT]) InsertMulti(ctx context.Context, entities []*T) ([]strin
 					entity.SetID(GenerateUUID())
 				}
 
-				entity.SetCreatedAt(now)
-				entity.SetUpdatedAt(now)
+				if v, ok := any(entity).(Creator); ok {
+					v.SetCreatedAt(now)
+				}
 
 				if v, ok := any(entity).(Versioner); ok {
 					v.SetVersion(1)
@@ -562,7 +571,9 @@ func (c *Client[T, PT]) UpdateMulti(ctx context.Context, entities []*T) error {
 					continue
 				}
 
-				entity.SetUpdatedAt(now)
+				if v, ok := any(entity).(Updator); ok {
+					v.SetUpdatedAt(now)
+				}
 
 				if v, ok := any(entity).(Versioner); ok {
 					v.SetVersion(v.GetVersion() + 1)
