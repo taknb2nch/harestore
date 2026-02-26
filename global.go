@@ -42,7 +42,7 @@ func getGlobalOptions() []ClientOption {
 
 // RunInTransaction starts a transaction.
 func RunInTransaction(ctx context.Context, f func(ctx context.Context) error) error {
-	if _, ok := extractTransactionFromContext(ctx); ok {
+	if _, ok := ExtractTransactionFromContext(ctx); ok {
 		// 既存のコンテキストのまま実行
 		err := f(ctx)
 		if err != nil {
@@ -53,7 +53,7 @@ func RunInTransaction(ctx context.Context, f func(ctx context.Context) error) er
 	}
 
 	_, err := defaultRawClient.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
-		ctxWithTx := context.WithValue(ctx, contextKeyTransaction{}, tx)
+		ctxWithTx := WithTransaction(ctx, tx)
 
 		return f(ctxWithTx)
 	})

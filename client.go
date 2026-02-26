@@ -28,6 +28,7 @@ type clientConfig struct {
 	maxConcurrency int
 	globalTimeout  time.Duration
 	batchTimeout   time.Duration
+	logger         Logger
 }
 
 // ClientOption
@@ -53,6 +54,13 @@ func WithGlobalTimeout(d time.Duration) ClientOption {
 func WithBatchTimeout(d time.Duration) ClientOption {
 	return func(c *clientConfig) {
 		c.batchTimeout = d
+	}
+}
+
+// WithLogger
+func WithLogger(l Logger) ClientOption {
+	return func(c *clientConfig) {
+		c.logger = l
 	}
 }
 
@@ -103,26 +111,11 @@ func newID(kind string, id string) *datastore.Key {
 	return datastore.NameKey(kind, id, nil)
 }
 
-type contextKeyTransaction = struct{}
-
-// extractTransactionFromContext extracts transacton from context.
-func extractTransactionFromContext(ctx context.Context) (*datastore.Transaction, bool) {
-	trans, ok := ctx.Value(contextKeyTransaction{}).(*datastore.Transaction)
-	if !ok {
-		return nil, false
-	}
-
-	if trans == nil {
-		return nil, false
-	}
-
-	return trans, true
-}
-
 // Client provides methods to interact with Google Cloud Datastore.
 type Client[T any, PT PEntity[T]] struct {
 	Raw    *datastore.Client
 	config clientConfig
+	logger Logger
 }
 
 // NewClient creates a new Repository instance.
@@ -131,6 +124,7 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 		maxConcurrency: defaultMaxConcurrency,
 		globalTimeout:  defaultGlobalTimeout,
 		batchTimeout:   defaultBatchTimeout,
+		logger:         &nopLogger{},
 	}
 
 	for _, opt := range opts {
@@ -140,12 +134,13 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 	return &Client[T, PT]{
 		Raw:    client,
 		config: cfg,
+		logger: cfg.logger,
 	}
 }
 
 // RunInTransaction starts a transaction.
 func (c *Client[T, PT]) RunInTransaction(ctx context.Context, f func(ctxWithTransaction context.Context) error) error {
-	if _, ok := extractTransactionFromContext(ctx); ok {
+	if _, ok := ExtractTransactionFromContext(ctx); ok {
 		err := f(ctx)
 		if err != nil {
 			return err
@@ -155,7 +150,7 @@ func (c *Client[T, PT]) RunInTransaction(ctx context.Context, f func(ctxWithTran
 	}
 
 	_, err := c.Raw.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
-		ctxWithTx := context.WithValue(ctx, contextKeyTransaction{}, tx)
+		ctxWithTx := WithTransaction(ctx, tx)
 
 		return f(ctxWithTx)
 	})
@@ -315,7 +310,7 @@ func (c *Client[T, PT]) GetMultiByID(ctx context.Context, ids []string) ([]*T, e
 
 			var err error
 
-			if tx, ok := extractTransactionFromContext(ctx); ok {
+			if tx, ok := ExtractTransactionFromContext(ctx); ok {
 				err = tx.GetMulti(batchKeys, batchEntities)
 			} else {
 				err = c.Raw.GetMulti(ctx, batchKeys, batchEntities)
@@ -850,8 +845,12 @@ func (c *Client[T, PT]) RunRawQuery(ctx context.Context, q *datastore.Query) ([]
 		return nil, ErrInvalidQuery
 	}
 
-	if tx, ok := extractTransactionFromContext(ctx); ok {
-		q = q.Transaction(tx)
+	if tx, ok := ExtractTransactionFromContext(ctx); ok {
+		if tx, ok := tx.(*datastore.Transaction); ok {
+			q = q.Transaction(tx)
+		} else {
+			c.logger.WarnwCtx(ctx, "harestore: transaction ignored in RunRawQuery. transaction is not a native *datastore.Transaction")
+		}
 	}
 
 	it := c.Raw.Run(ctx, q)
@@ -892,8 +891,12 @@ func (c *Client[T, PT]) DeleteByRawQuery(ctx context.Context, q *datastore.Query
 
 	q = q.KeysOnly()
 
-	if tx, ok := extractTransactionFromContext(ctx); ok {
-		q = q.Transaction(tx)
+	if tx, ok := ExtractTransactionFromContext(ctx); ok {
+		if tx, ok := tx.(*datastore.Transaction); ok {
+			q = q.Transaction(tx)
+		} else {
+			c.logger.WarnwCtx(ctx, "harestore: transaction ignored in DeleteByRawQuery. transaction is not a native *datastore.Transaction")
+		}
 	}
 
 	it := c.Raw.Run(ctx, q)
@@ -1045,7 +1048,7 @@ func (c *Client[T, PT]) executePutBatch(ctx context.Context, keys []*datastore.K
 
 	var err error
 
-	if tx, ok := extractTransactionFromContext(ctx); ok {
+	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		_, err = tx.PutMulti(keys, entities)
 	} else {
 		_, err = c.Raw.PutMulti(ctx, keys, entities)
@@ -1078,7 +1081,7 @@ func (c *Client[T, PT]) executeDeleteBatch(ctx context.Context, keys []*datastor
 
 	var err error
 
-	if tx, ok := extractTransactionFromContext(ctx); ok {
+	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		err = tx.DeleteMulti(keys)
 	} else {
 		err = c.Raw.DeleteMulti(ctx, keys)
