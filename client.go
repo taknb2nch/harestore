@@ -28,6 +28,7 @@ type clientConfig struct {
 	maxConcurrency int
 	globalTimeout  time.Duration
 	batchTimeout   time.Duration
+	logger         Logger
 }
 
 // ClientOption
@@ -53,6 +54,13 @@ func WithGlobalTimeout(d time.Duration) ClientOption {
 func WithBatchTimeout(d time.Duration) ClientOption {
 	return func(c *clientConfig) {
 		c.batchTimeout = d
+	}
+}
+
+// WithLogger
+func WithLogger(l Logger) ClientOption {
+	return func(c *clientConfig) {
+		c.logger = l
 	}
 }
 
@@ -107,6 +115,7 @@ func newID(kind string, id string) *datastore.Key {
 type Client[T any, PT PEntity[T]] struct {
 	Raw    *datastore.Client
 	config clientConfig
+	logger Logger
 }
 
 // NewClient creates a new Repository instance.
@@ -115,6 +124,7 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 		maxConcurrency: defaultMaxConcurrency,
 		globalTimeout:  defaultGlobalTimeout,
 		batchTimeout:   defaultBatchTimeout,
+		logger:         &nopLogger{},
 	}
 
 	for _, opt := range opts {
@@ -124,6 +134,7 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 	return &Client[T, PT]{
 		Raw:    client,
 		config: cfg,
+		logger: cfg.logger,
 	}
 }
 
@@ -837,6 +848,8 @@ func (c *Client[T, PT]) RunRawQuery(ctx context.Context, q *datastore.Query) ([]
 	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		if tx, ok := tx.(*datastore.Transaction); ok {
 			q = q.Transaction(tx)
+		} else {
+			c.logger.WarnwCtx(ctx, "harestore: transaction ignored in RunRawQuery. transaction is not a native *datastore.Transaction")
 		}
 	}
 
@@ -881,6 +894,8 @@ func (c *Client[T, PT]) DeleteByRawQuery(ctx context.Context, q *datastore.Query
 	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		if tx, ok := tx.(*datastore.Transaction); ok {
 			q = q.Transaction(tx)
+		} else {
+			c.logger.WarnwCtx(ctx, "harestore: transaction ignored in DeleteByRawQuery. transaction is not a native *datastore.Transaction")
 		}
 	}
 
