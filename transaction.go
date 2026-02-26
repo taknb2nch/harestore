@@ -20,8 +20,8 @@ func WithTransaction(ctx context.Context, tx Transaction) context.Context {
 	return context.WithValue(ctx, contextKeyTransaction{}, tx)
 }
 
-// extractTransactionFromContext extracts transacton from context.
-func extractTransactionFromContext(ctx context.Context) (Transaction, bool) {
+// ExtractTransactionFromContext extracts transacton from context.
+func ExtractTransactionFromContext(ctx context.Context) (Transaction, bool) {
 	trans, ok := ctx.Value(contextKeyTransaction{}).(Transaction)
 	if !ok {
 		return nil, false

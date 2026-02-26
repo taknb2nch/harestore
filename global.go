@@ -42,7 +42,7 @@ func getGlobalOptions() []ClientOption {
 
 // RunInTransaction starts a transaction.
 func RunInTransaction(ctx context.Context, f func(ctx context.Context) error) error {
-	if _, ok := extractTransactionFromContext(ctx); ok {
+	if _, ok := ExtractTransactionFromContext(ctx); ok {
 		// 既存のコンテキストのまま実行
 		err := f(ctx)
 		if err != nil {

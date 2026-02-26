@@ -129,7 +129,7 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 
 // RunInTransaction starts a transaction.
 func (c *Client[T, PT]) RunInTransaction(ctx context.Context, f func(ctxWithTransaction context.Context) error) error {
-	if _, ok := extractTransactionFromContext(ctx); ok {
+	if _, ok := ExtractTransactionFromContext(ctx); ok {
 		err := f(ctx)
 		if err != nil {
 			return err
@@ -299,7 +299,7 @@ func (c *Client[T, PT]) GetMultiByID(ctx context.Context, ids []string) ([]*T, e
 
 			var err error
 
-			if tx, ok := extractTransactionFromContext(ctx); ok {
+			if tx, ok := ExtractTransactionFromContext(ctx); ok {
 				err = tx.GetMulti(batchKeys, batchEntities)
 			} else {
 				err = c.Raw.GetMulti(ctx, batchKeys, batchEntities)
@@ -834,7 +834,7 @@ func (c *Client[T, PT]) RunRawQuery(ctx context.Context, q *datastore.Query) ([]
 		return nil, ErrInvalidQuery
 	}
 
-	if tx, ok := extractTransactionFromContext(ctx); ok {
+	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		if tx, ok := tx.(*datastore.Transaction); ok {
 			q = q.Transaction(tx)
 		}
@@ -878,7 +878,7 @@ func (c *Client[T, PT]) DeleteByRawQuery(ctx context.Context, q *datastore.Query
 
 	q = q.KeysOnly()
 
-	if tx, ok := extractTransactionFromContext(ctx); ok {
+	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		if tx, ok := tx.(*datastore.Transaction); ok {
 			q = q.Transaction(tx)
 		}
@@ -1033,7 +1033,7 @@ func (c *Client[T, PT]) executePutBatch(ctx context.Context, keys []*datastore.K
 
 	var err error
 
-	if tx, ok := extractTransactionFromContext(ctx); ok {
+	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		_, err = tx.PutMulti(keys, entities)
 	} else {
 		_, err = c.Raw.PutMulti(ctx, keys, entities)
@@ -1066,7 +1066,7 @@ func (c *Client[T, PT]) executeDeleteBatch(ctx context.Context, keys []*datastor
 
 	var err error
 
-	if tx, ok := extractTransactionFromContext(ctx); ok {
+	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		err = tx.DeleteMulti(keys)
 	} else {
 		err = c.Raw.DeleteMulti(ctx, keys)
