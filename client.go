@@ -103,22 +103,6 @@ func newID(kind string, id string) *datastore.Key {
 	return datastore.NameKey(kind, id, nil)
 }
 
-type contextKeyTransaction = struct{}
-
-// extractTransactionFromContext extracts transacton from context.
-func extractTransactionFromContext(ctx context.Context) (*datastore.Transaction, bool) {
-	trans, ok := ctx.Value(contextKeyTransaction{}).(*datastore.Transaction)
-	if !ok {
-		return nil, false
-	}
-
-	if trans == nil {
-		return nil, false
-	}
-
-	return trans, true
-}
-
 // Client provides methods to interact with Google Cloud Datastore.
 type Client[T any, PT PEntity[T]] struct {
 	Raw    *datastore.Client
@@ -155,7 +139,7 @@ func (c *Client[T, PT]) RunInTransaction(ctx context.Context, f func(ctxWithTran
 	}
 
 	_, err := c.Raw.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
-		ctxWithTx := context.WithValue(ctx, contextKeyTransaction{}, tx)
+		ctxWithTx := WithTransaction(ctx, tx)
 
 		return f(ctxWithTx)
 	})
@@ -851,7 +835,9 @@ func (c *Client[T, PT]) RunRawQuery(ctx context.Context, q *datastore.Query) ([]
 	}
 
 	if tx, ok := extractTransactionFromContext(ctx); ok {
-		q = q.Transaction(tx)
+		if tx, ok := tx.(*datastore.Transaction); ok {
+			q = q.Transaction(tx)
+		}
 	}
 
 	it := c.Raw.Run(ctx, q)
@@ -893,7 +879,9 @@ func (c *Client[T, PT]) DeleteByRawQuery(ctx context.Context, q *datastore.Query
 	q = q.KeysOnly()
 
 	if tx, ok := extractTransactionFromContext(ctx); ok {
-		q = q.Transaction(tx)
+		if tx, ok := tx.(*datastore.Transaction); ok {
+			q = q.Transaction(tx)
+		}
 	}
 
 	it := c.Raw.Run(ctx, q)

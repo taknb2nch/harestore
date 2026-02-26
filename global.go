@@ -53,7 +53,7 @@ func RunInTransaction(ctx context.Context, f func(ctx context.Context) error) er
 	}
 
 	_, err := defaultRawClient.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
-		ctxWithTx := context.WithValue(ctx, contextKeyTransaction{}, tx)
+		ctxWithTx := WithTransaction(ctx, tx)
 
 		return f(ctxWithTx)
 	})
