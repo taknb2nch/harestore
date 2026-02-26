@@ -1,5 +1,5 @@
 # harestore [![Go Reference](https://pkg.go.dev/badge/github.com/taknb2nch/harestore.svg)](https://pkg.go.dev/github.com/taknb2nch/harestore)
-A type-safe, generic Google Cloud Datastore client for Go with automatic optimistic locking.
+A type-safe, generic Google Cloud Datastore client for Go.
 
 ## Installation
 
