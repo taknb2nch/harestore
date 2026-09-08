@@ -126,10 +126,12 @@ func newNameKey(kind string, id string) *datastore.Key {
 
 // Client provides methods to interact with Google Cloud Datastore.
 type Client[T any, PT PEntity[T]] struct {
-	Raw       *datastore.Client
-	config    clientConfig
-	logger    Logger
-	newIDFunc NewIDFunc
+	Raw            *datastore.Client
+	maxConcurrency int
+	globalTimeout  time.Duration
+	batchTimeout   time.Duration
+	logger         Logger
+	newIDFunc      NewIDFunc
 }
 
 // NewClient creates a new Repository instance.
@@ -147,10 +149,12 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 	}
 
 	return &Client[T, PT]{
-		Raw:       client,
-		config:    cfg,
-		logger:    cfg.logger,
-		newIDFunc: cfg.newIDFunc,
+		Raw:            client,
+		maxConcurrency: cfg.maxConcurrency,
+		globalTimeout:  cfg.globalTimeout,
+		batchTimeout:   cfg.batchTimeout,
+		logger:         cfg.logger,
+		newIDFunc:      cfg.newIDFunc,
 	}
 }
 
@@ -307,7 +311,7 @@ func (c *Client[T, PT]) GetMulti(ctx context.Context, ids []string) ([]*T, error
 
 	var hasError int32 = 0
 
-	sem := make(chan struct{}, c.config.maxConcurrency)
+	sem := make(chan struct{}, c.maxConcurrency)
 	var wg sync.WaitGroup
 
 	for i := 0; i < len(keys); i += batchSizeRead {
@@ -378,10 +382,10 @@ func (c *Client[T, PT]) InsertMulti(ctx context.Context, entities []*T) ([]strin
 		return []string{}, nil
 	}
 
-	if c.config.globalTimeout > 0 {
+	if c.globalTimeout > 0 {
 		var cancel context.CancelFunc
 
-		ctx, cancel = context.WithTimeout(ctx, c.config.globalTimeout)
+		ctx, cancel = context.WithTimeout(ctx, c.globalTimeout)
 
 		defer cancel()
 	}
@@ -391,7 +395,7 @@ func (c *Client[T, PT]) InsertMulti(ctx context.Context, entities []*T) ([]strin
 
 	var hasError int32 = 0
 
-	sem := make(chan struct{}, c.config.maxConcurrency)
+	sem := make(chan struct{}, c.maxConcurrency)
 
 	var wg sync.WaitGroup
 
@@ -515,9 +519,9 @@ func (c *Client[T, PT]) UpdateMulti(ctx context.Context, entities []*T) error {
 		return nil
 	}
 
-	if c.config.globalTimeout > 0 {
+	if c.globalTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.config.globalTimeout)
+		ctx, cancel = context.WithTimeout(ctx, c.globalTimeout)
 
 		defer cancel()
 	}
@@ -525,7 +529,7 @@ func (c *Client[T, PT]) UpdateMulti(ctx context.Context, entities []*T) error {
 	combinedErr := make(datastore.MultiError, len(entities))
 	var hasError int32 = 0
 
-	sem := make(chan struct{}, c.config.maxConcurrency)
+	sem := make(chan struct{}, c.maxConcurrency)
 	var wg sync.WaitGroup
 
 	now := time.Now()
@@ -643,9 +647,9 @@ func (c *Client[T, PT]) DeleteMultiByID(ctx context.Context, ids []string) error
 		return nil
 	}
 
-	if c.config.globalTimeout > 0 {
+	if c.globalTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.config.globalTimeout)
+		ctx, cancel = context.WithTimeout(ctx, c.globalTimeout)
 
 		defer cancel()
 	}
@@ -663,7 +667,7 @@ func (c *Client[T, PT]) DeleteMultiByID(ctx context.Context, ids []string) error
 	combinedErr := make(datastore.MultiError, len(ids))
 	var hasError int32 = 0
 
-	sem := make(chan struct{}, c.config.maxConcurrency)
+	sem := make(chan struct{}, c.maxConcurrency)
 	var wg sync.WaitGroup
 
 	for i := 0; i < len(ids); i += batchSizeMutate {
@@ -750,9 +754,9 @@ func (c *Client[T, PT]) DeleteMulti(ctx context.Context, entities []*T) error {
 		return nil
 	}
 
-	if c.config.globalTimeout > 0 {
+	if c.globalTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.config.globalTimeout)
+		ctx, cancel = context.WithTimeout(ctx, c.globalTimeout)
 
 		defer cancel()
 	}
@@ -760,7 +764,7 @@ func (c *Client[T, PT]) DeleteMulti(ctx context.Context, entities []*T) error {
 	combinedErr := make(datastore.MultiError, len(entities))
 	var hasError int32 = 0
 
-	sem := make(chan struct{}, c.config.maxConcurrency)
+	sem := make(chan struct{}, c.maxConcurrency)
 	var wg sync.WaitGroup
 
 	// ループ方式を統一: i += batchSizeMutate
@@ -938,9 +942,9 @@ func (c *Client[T, PT]) DeleteByQuery(ctx context.Context, q *datastore.Query) e
 		return ErrInvalidQuery
 	}
 
-	if c.config.globalTimeout > 0 {
+	if c.globalTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.config.globalTimeout)
+		ctx, cancel = context.WithTimeout(ctx, c.globalTimeout)
 
 		defer cancel()
 	}
@@ -957,10 +961,10 @@ func (c *Client[T, PT]) DeleteByQuery(ctx context.Context, q *datastore.Query) e
 
 	it := c.Raw.Run(ctx, q)
 
-	sem := make(chan struct{}, c.config.maxConcurrency)
+	sem := make(chan struct{}, c.maxConcurrency)
 	var wg sync.WaitGroup
 
-	errChan := make(chan error, c.config.maxConcurrency*2)
+	errChan := make(chan error, c.maxConcurrency*2)
 	var stopSignal int32
 
 	resultChan := make(chan datastore.MultiError, 1)
@@ -1094,10 +1098,10 @@ func (c *Client[T, PT]) executePutBatch(ctx context.Context, keys []*datastore.K
 		return nil
 	}
 
-	if c.config.batchTimeout > 0 {
+	if c.batchTimeout > 0 {
 		var cancel context.CancelFunc
 
-		ctx, cancel = context.WithTimeout(ctx, c.config.batchTimeout)
+		ctx, cancel = context.WithTimeout(ctx, c.batchTimeout)
 
 		defer cancel()
 	}
@@ -1127,10 +1131,10 @@ func (c *Client[T, PT]) executeDeleteBatch(ctx context.Context, keys []*datastor
 		return nil
 	}
 
-	if c.config.batchTimeout > 0 {
+	if c.batchTimeout > 0 {
 		var cancel context.CancelFunc
 
-		ctx, cancel = context.WithTimeout(ctx, c.config.batchTimeout)
+		ctx, cancel = context.WithTimeout(ctx, c.batchTimeout)
 
 		defer cancel()
 	}
