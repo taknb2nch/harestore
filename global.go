@@ -61,8 +61,8 @@ func RunInTransaction(ctx context.Context, f func(ctx context.Context) error) er
 	return err
 }
 
-// GetByID retrieves one entity by specifying id.
-func GetByID[T any, PT PEntity[T]](ctx context.Context, id string) (*T, error) {
+// Get retrieves one entity by specifying id.
+func Get[T any, PT PEntity[T]](ctx context.Context, id string) (*T, error) {
 	opts := getGlobalOptions()
 
 	return NewClient[T, PT](defaultRawClient, opts...).Get(ctx, id)
@@ -96,8 +96,8 @@ func Delete[T any, PT PEntity[T]](ctx context.Context, entity *T) error {
 	return NewClient[T, PT](defaultRawClient, opts...).Delete(ctx, entity)
 }
 
-// GetMultiByID retrieves the entities by specifing ids.
-func GetMultiByID[T any, PT PEntity[T]](ctx context.Context, ids []string) ([]*T, error) {
+// GetMulti retrieves the entities by specifing ids.
+func GetMulti[T any, PT PEntity[T]](ctx context.Context, ids []string) ([]*T, error) {
 	opts := getGlobalOptions()
 
 	return NewClient[T, PT](defaultRawClient, opts...).GetMulti(ctx, ids)
