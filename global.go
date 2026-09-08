@@ -131,15 +131,22 @@ func DeleteMulti[T any, PT PEntity[T]](ctx context.Context, entities []*T) error
 	return NewClient[T, PT](defaultRawClient, opts...).DeleteMulti(ctx, entities)
 }
 
-// RunRawQuery executes the query.
-func RunRawQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) ([]*T, error) {
+// RunQuery executes the query.
+func RunQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) ([]*T, error) {
 	opts := getGlobalOptions()
 
 	return NewClient[T, PT](defaultRawClient, opts...).RunQuery(ctx, q)
 }
 
-// DeleteByRawQuery deletes entities retrieved by executing a query.
-func DeleteByRawQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) error {
+// RunQueryWithCursor executes the query.
+func RunQueryWithCursor[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query, cursor string) ([]*T, string, error) {
+	opts := getGlobalOptions()
+
+	return NewClient[T, PT](defaultRawClient, opts...).RunQueryWithCursor(ctx, q, cursor)
+}
+
+// DeleteByQuery deletes entities retrieved by executing a query.
+func DeleteByQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) error {
 	opts := getGlobalOptions()
 
 	return NewClient[T, PT](defaultRawClient, opts...).DeleteByQuery(ctx, q)

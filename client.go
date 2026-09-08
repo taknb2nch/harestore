@@ -866,11 +866,46 @@ func (c *Client[T, PT]) RunQuery(ctx context.Context, q *datastore.Query) ([]*T,
 		return nil, ErrInvalidQuery
 	}
 
+	entities, _, err := c.runQuery(ctx, q)
+
+	return entities, err
+}
+
+// RunQueryWithCursor executes the query starting from the given cursor and returns the results and the next cursor.
+func (c *Client[T, PT]) RunQueryWithCursor(ctx context.Context, q *datastore.Query, cursor string) ([]*T, string, error) {
+	if q == nil {
+		return nil, "", ErrInvalidQuery
+	}
+
+	if cursor != "" {
+		curCursor, err := datastore.DecodeCursor(cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("harestore: invalid cursor: %w", err)
+		}
+
+		q = q.Start(curCursor)
+	}
+
+	entities, it, err := c.runQuery(ctx, q)
+	if err != nil {
+		return nil, "", err
+	}
+
+	nextCursor, err := it.Cursor()
+	if err != nil {
+		return entities, "", fmt.Errorf("harestore: failed to get next cursor: %w", err)
+	}
+
+	return entities, nextCursor.String(), nil
+}
+
+// runQuery executes the query and returns the entities along with the iterator.
+func (c *Client[T, PT]) runQuery(ctx context.Context, q *datastore.Query) ([]*T, *datastore.Iterator, error) {
 	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		if tx, ok := tx.(*datastore.Transaction); ok {
 			q = q.Transaction(tx)
 		} else {
-			c.logger.WarnwCtx(ctx, "harestore: transaction ignored in RunRawQuery. transaction is not a native *datastore.Transaction")
+			c.logger.WarnwCtx(ctx, "harestore: transaction ignored in RunQuery. transaction is not a native *datastore.Transaction")
 		}
 	}
 
@@ -885,7 +920,7 @@ func (c *Client[T, PT]) RunQuery(ctx context.Context, q *datastore.Query) ([]*T,
 		if err == iterator.Done {
 			break
 		} else if err != nil {
-			return nil, fmt.Errorf("could not execute iterator.Next: %w", err)
+			return nil, nil, fmt.Errorf("harestore: could not execute iterator.Next: %w", err)
 		}
 
 		pt := PT(&entity)
@@ -894,7 +929,7 @@ func (c *Client[T, PT]) RunQuery(ctx context.Context, q *datastore.Query) ([]*T,
 		entities = append(entities, &entity)
 	}
 
-	return entities, nil
+	return entities, it, nil
 }
 
 // DeleteByQuery deletes entities retrieved by executing a query.
