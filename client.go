@@ -29,6 +29,7 @@ type clientConfig struct {
 	globalTimeout  time.Duration
 	batchTimeout   time.Duration
 	logger         Logger
+	newIDFunc      NewIDFunc
 }
 
 // ClientOption
@@ -61,6 +62,18 @@ func WithBatchTimeout(d time.Duration) ClientOption {
 func WithLogger(l Logger) ClientOption {
 	return func(c *clientConfig) {
 		c.logger = l
+	}
+}
+
+// NewIDFunc
+type NewIDFunc func() string
+
+// WithNewIDFunc sets a custom ID generation function.
+func WithNewIDFunc(f NewIDFunc) ClientOption {
+	return func(c *clientConfig) {
+		if f != nil {
+			c.newIDFunc = f
+		}
 	}
 }
 
@@ -101,21 +114,22 @@ type PEntity[T any] interface {
 	*T
 }
 
-// GenerateUUID creates a UUID that is collision resistant.
-func GenerateUUID() string {
+// GenerateID generates a new unique identifier using the UUID
+func GenerateID() string {
 	return uuid.New().String()
 }
 
-// newID creates a new Key.
-func newID(kind string, id string) *datastore.Key {
+// newNameKey creates a new Key.
+func newNameKey(kind string, id string) *datastore.Key {
 	return datastore.NameKey(kind, id, nil)
 }
 
 // Client provides methods to interact with Google Cloud Datastore.
 type Client[T any, PT PEntity[T]] struct {
-	Raw    *datastore.Client
-	config clientConfig
-	logger Logger
+	Raw       *datastore.Client
+	config    clientConfig
+	logger    Logger
+	newIDFunc NewIDFunc
 }
 
 // NewClient creates a new Repository instance.
@@ -125,6 +139,7 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 		globalTimeout:  defaultGlobalTimeout,
 		batchTimeout:   defaultBatchTimeout,
 		logger:         &nopLogger{},
+		newIDFunc:      GenerateID,
 	}
 
 	for _, opt := range opts {
@@ -132,10 +147,16 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 	}
 
 	return &Client[T, PT]{
-		Raw:    client,
-		config: cfg,
-		logger: cfg.logger,
+		Raw:       client,
+		config:    cfg,
+		logger:    cfg.logger,
+		newIDFunc: cfg.newIDFunc,
 	}
+}
+
+// GenerateID generates a new unique identifier using the function configured in the client.
+func (c *Client[T, PT]) GenerateID() string {
+	return c.newIDFunc()
 }
 
 // RunInTransaction starts a transaction.
@@ -158,13 +179,13 @@ func (c *Client[T, PT]) RunInTransaction(ctx context.Context, f func(ctxWithTran
 	return err
 }
 
-// GetByID retrieves one entity by specifying id.
-func (c *Client[T, PT]) GetByID(ctx context.Context, id string) (*T, error) {
+// Get retrieves one entity by specifying id.
+func (c *Client[T, PT]) Get(ctx context.Context, id string) (*T, error) {
 	if id == "" {
 		return nil, ErrInvalidID
 	}
 
-	entities, err := c.GetMultiByID(ctx, []string{id})
+	entities, err := c.GetMulti(ctx, []string{id})
 
 	if err != nil {
 		if merr, ok := err.(datastore.MultiError); ok {
@@ -257,8 +278,8 @@ func (c *Client[T, PT]) Delete(ctx context.Context, entity *T) error {
 	return nil
 }
 
-// GetMultiByID retrieves the entities by specifing ids.
-func (c *Client[T, PT]) GetMultiByID(ctx context.Context, ids []string) ([]*T, error) {
+// GetMulti retrieves the entities by specifing ids.
+func (c *Client[T, PT]) GetMulti(ctx context.Context, ids []string) ([]*T, error) {
 	if len(ids) == 0 {
 		return make([]*T, 0), nil
 	}
@@ -278,7 +299,7 @@ func (c *Client[T, PT]) GetMultiByID(ctx context.Context, ids []string) ([]*T, e
 			return nil, ErrInvalidID
 		}
 
-		keys = append(keys, newID(entity.KindName(), id))
+		keys = append(keys, newNameKey(entity.KindName(), id))
 	}
 
 	allEntities := make([]*T, len(keys))
@@ -427,7 +448,7 @@ func (c *Client[T, PT]) InsertMulti(ctx context.Context, entities []*T) ([]strin
 				}
 
 				if entity.GetID() == "" {
-					entity.SetID(GenerateUUID())
+					entity.SetID(c.GenerateID())
 				}
 
 				if v, ok := any(entity).(Creator); ok {
@@ -438,7 +459,7 @@ func (c *Client[T, PT]) InsertMulti(ctx context.Context, entities []*T) ([]strin
 					v.SetVersion(1)
 				}
 
-				key := newID(entity.KindName(), entity.GetID())
+				key := newNameKey(entity.KindName(), entity.GetID())
 
 				validKeys = append(validKeys, key)
 				validEntities = append(validEntities, entity)
@@ -574,7 +595,7 @@ func (c *Client[T, PT]) UpdateMulti(ctx context.Context, entities []*T) error {
 					v.SetVersion(v.GetVersion() + 1)
 				}
 
-				key := newID(entity.KindName(), entity.GetID())
+				key := newNameKey(entity.KindName(), entity.GetID())
 
 				validKeys = append(validKeys, key)
 				validEntities = append(validEntities, entity)
@@ -682,7 +703,7 @@ func (c *Client[T, PT]) DeleteMultiByID(ctx context.Context, ids []string) error
 					continue
 				}
 
-				key := newID(kind, id)
+				key := newNameKey(kind, id)
 
 				validKeys = append(validKeys, key)
 				validIndices = append(validIndices, idx)
@@ -798,7 +819,7 @@ func (c *Client[T, PT]) DeleteMulti(ctx context.Context, entities []*T) error {
 					continue
 				}
 
-				key := newID(entity.KindName(), entity.GetID())
+				key := newNameKey(entity.KindName(), entity.GetID())
 
 				validKeys = append(validKeys, key)
 				validIndices = append(validIndices, idx)
@@ -839,17 +860,52 @@ func (c *Client[T, PT]) DeleteMulti(ctx context.Context, entities []*T) error {
 	return nil
 }
 
-// RunRawQuery executes the query.
-func (c *Client[T, PT]) RunRawQuery(ctx context.Context, q *datastore.Query) ([]*T, error) {
+// RunQuery executes the query.
+func (c *Client[T, PT]) RunQuery(ctx context.Context, q *datastore.Query) ([]*T, error) {
 	if q == nil {
 		return nil, ErrInvalidQuery
 	}
 
+	entities, _, err := c.runQuery(ctx, q)
+
+	return entities, err
+}
+
+// RunQueryWithCursor executes the query starting from the given cursor and returns the results and the next cursor.
+func (c *Client[T, PT]) RunQueryWithCursor(ctx context.Context, q *datastore.Query, cursor string) ([]*T, string, error) {
+	if q == nil {
+		return nil, "", ErrInvalidQuery
+	}
+
+	if cursor != "" {
+		curCursor, err := datastore.DecodeCursor(cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("harestore: invalid cursor: %w", err)
+		}
+
+		q = q.Start(curCursor)
+	}
+
+	entities, it, err := c.runQuery(ctx, q)
+	if err != nil {
+		return nil, "", err
+	}
+
+	nextCursor, err := it.Cursor()
+	if err != nil {
+		return entities, "", fmt.Errorf("harestore: failed to get next cursor: %w", err)
+	}
+
+	return entities, nextCursor.String(), nil
+}
+
+// runQuery executes the query and returns the entities along with the iterator.
+func (c *Client[T, PT]) runQuery(ctx context.Context, q *datastore.Query) ([]*T, *datastore.Iterator, error) {
 	if tx, ok := ExtractTransactionFromContext(ctx); ok {
 		if tx, ok := tx.(*datastore.Transaction); ok {
 			q = q.Transaction(tx)
 		} else {
-			c.logger.WarnwCtx(ctx, "harestore: transaction ignored in RunRawQuery. transaction is not a native *datastore.Transaction")
+			c.logger.WarnwCtx(ctx, "harestore: transaction ignored in RunQuery. transaction is not a native *datastore.Transaction")
 		}
 	}
 
@@ -864,7 +920,7 @@ func (c *Client[T, PT]) RunRawQuery(ctx context.Context, q *datastore.Query) ([]
 		if err == iterator.Done {
 			break
 		} else if err != nil {
-			return nil, fmt.Errorf("could not execute iterator.Next: %w", err)
+			return nil, nil, fmt.Errorf("harestore: could not execute iterator.Next: %w", err)
 		}
 
 		pt := PT(&entity)
@@ -873,11 +929,11 @@ func (c *Client[T, PT]) RunRawQuery(ctx context.Context, q *datastore.Query) ([]
 		entities = append(entities, &entity)
 	}
 
-	return entities, nil
+	return entities, it, nil
 }
 
-// DeleteByRawQuery deletes entities retrieved by executing a query.
-func (c *Client[T, PT]) DeleteByRawQuery(ctx context.Context, q *datastore.Query) error {
+// DeleteByQuery deletes entities retrieved by executing a query.
+func (c *Client[T, PT]) DeleteByQuery(ctx context.Context, q *datastore.Query) error {
 	if q == nil {
 		return ErrInvalidQuery
 	}

@@ -65,7 +65,7 @@ func RunInTransaction(ctx context.Context, f func(ctx context.Context) error) er
 func GetByID[T any, PT PEntity[T]](ctx context.Context, id string) (*T, error) {
 	opts := getGlobalOptions()
 
-	return NewClient[T, PT](defaultRawClient, opts...).GetByID(ctx, id)
+	return NewClient[T, PT](defaultRawClient, opts...).Get(ctx, id)
 }
 
 // Insert registers one entity.
@@ -100,7 +100,7 @@ func Delete[T any, PT PEntity[T]](ctx context.Context, entity *T) error {
 func GetMultiByID[T any, PT PEntity[T]](ctx context.Context, ids []string) ([]*T, error) {
 	opts := getGlobalOptions()
 
-	return NewClient[T, PT](defaultRawClient, opts...).GetMultiByID(ctx, ids)
+	return NewClient[T, PT](defaultRawClient, opts...).GetMulti(ctx, ids)
 }
 
 // InsertMulti inserts the specifing entities.
@@ -131,16 +131,23 @@ func DeleteMulti[T any, PT PEntity[T]](ctx context.Context, entities []*T) error
 	return NewClient[T, PT](defaultRawClient, opts...).DeleteMulti(ctx, entities)
 }
 
-// RunRawQuery executes the query.
-func RunRawQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) ([]*T, error) {
+// RunQuery executes the query.
+func RunQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) ([]*T, error) {
 	opts := getGlobalOptions()
 
-	return NewClient[T, PT](defaultRawClient, opts...).RunRawQuery(ctx, q)
+	return NewClient[T, PT](defaultRawClient, opts...).RunQuery(ctx, q)
 }
 
-// DeleteByRawQuery deletes entities retrieved by executing a query.
-func DeleteByRawQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) error {
+// RunQueryWithCursor executes the query.
+func RunQueryWithCursor[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query, cursor string) ([]*T, string, error) {
 	opts := getGlobalOptions()
 
-	return NewClient[T, PT](defaultRawClient, opts...).DeleteByRawQuery(ctx, q)
+	return NewClient[T, PT](defaultRawClient, opts...).RunQueryWithCursor(ctx, q, cursor)
+}
+
+// DeleteByQuery deletes entities retrieved by executing a query.
+func DeleteByQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) error {
+	opts := getGlobalOptions()
+
+	return NewClient[T, PT](defaultRawClient, opts...).DeleteByQuery(ctx, q)
 }
