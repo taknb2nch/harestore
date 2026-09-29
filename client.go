@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/datastore"
-	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
 )
 
@@ -29,7 +28,6 @@ type clientConfig struct {
 	globalTimeout  time.Duration
 	batchTimeout   time.Duration
 	logger         Logger
-	newIDFunc      NewIDFunc
 }
 
 // ClientOption
@@ -65,18 +63,6 @@ func WithLogger(l Logger) ClientOption {
 	}
 }
 
-// NewIDFunc
-type NewIDFunc func() string
-
-// WithNewIDFunc sets a custom ID generation function.
-func WithNewIDFunc(f NewIDFunc) ClientOption {
-	return func(c *clientConfig) {
-		if f != nil {
-			c.newIDFunc = f
-		}
-	}
-}
-
 var (
 	ErrNilEntity     = errors.New("harestore: entity is nil")
 	ErrInvalidID     = errors.New("harestore: id cannot be empty")
@@ -92,31 +78,10 @@ type Entity interface {
 	SetID(id string)
 }
 
-// Creator allows the entity to automatically record its creation time.
-type Creator interface {
-	SetCreatedAt(createdAt time.Time)
-}
-
-// Updater allows the entity to automatically record its last update time.
-type Updater interface {
-	SetUpdatedAt(updatedAt time.Time)
-}
-
-// Versioner enables optimistic concurrency control for the entity.
-type Versioner interface {
-	SetVersion(version int)
-	GetVersion() int
-}
-
 // PEntity indicates that the pointer of T implements Entity.
 type PEntity[T any] interface {
 	Entity
 	*T
-}
-
-// GenerateID generates a new unique identifier using the UUID
-func GenerateID() string {
-	return uuid.New().String()
 }
 
 // newNameKey creates a new Key.
@@ -131,7 +96,6 @@ type Client[T any, PT PEntity[T]] struct {
 	globalTimeout  time.Duration
 	batchTimeout   time.Duration
 	logger         Logger
-	newIDFunc      NewIDFunc
 }
 
 // NewClient creates a new Repository instance.
@@ -141,7 +105,6 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 		globalTimeout:  defaultGlobalTimeout,
 		batchTimeout:   defaultBatchTimeout,
 		logger:         &nopLogger{},
-		newIDFunc:      GenerateID,
 	}
 
 	for _, opt := range opts {
@@ -154,13 +117,7 @@ func NewClient[T any, PT PEntity[T]](client *datastore.Client, opts ...ClientOpt
 		globalTimeout:  cfg.globalTimeout,
 		batchTimeout:   cfg.batchTimeout,
 		logger:         cfg.logger,
-		newIDFunc:      cfg.newIDFunc,
 	}
-}
-
-// GenerateID generates a new unique identifier using the function configured in the client.
-func (c *Client[T, PT]) GenerateID() string {
-	return c.newIDFunc()
 }
 
 // RunInTransaction starts a transaction.
@@ -399,8 +356,6 @@ func (c *Client[T, PT]) InsertMulti(ctx context.Context, entities []*T) ([]strin
 
 	var wg sync.WaitGroup
 
-	now := time.Now()
-
 	for i := 0; i < len(entities); i += batchSizeMutate {
 		start := i
 		end := min(i+batchSizeMutate, len(entities))
@@ -452,15 +407,11 @@ func (c *Client[T, PT]) InsertMulti(ctx context.Context, entities []*T) ([]strin
 				}
 
 				if entity.GetID() == "" {
-					entity.SetID(c.GenerateID())
-				}
+					atomic.StoreInt32(&hasError, 1)
 
-				if v, ok := any(entity).(Creator); ok {
-					v.SetCreatedAt(now)
-				}
+					targetErrSlice[idx] = ErrInvalidID
 
-				if v, ok := any(entity).(Versioner); ok {
-					v.SetVersion(1)
+					continue
 				}
 
 				key := newNameKey(entity.KindName(), entity.GetID())
@@ -532,8 +483,6 @@ func (c *Client[T, PT]) UpdateMulti(ctx context.Context, entities []*T) error {
 	sem := make(chan struct{}, c.maxConcurrency)
 	var wg sync.WaitGroup
 
-	now := time.Now()
-
 	for i := 0; i < len(entities); i += batchSizeMutate {
 		start := i
 		end := min(i+batchSizeMutate, len(entities))
@@ -589,14 +538,6 @@ func (c *Client[T, PT]) UpdateMulti(ctx context.Context, entities []*T) error {
 					targetErrSlice[idx] = ErrInvalidID
 
 					continue
-				}
-
-				if v, ok := any(entity).(Updater); ok {
-					v.SetUpdatedAt(now)
-				}
-
-				if v, ok := any(entity).(Versioner); ok {
-					v.SetVersion(v.GetVersion() + 1)
 				}
 
 				key := newNameKey(entity.KindName(), entity.GetID())
