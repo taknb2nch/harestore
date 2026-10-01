@@ -8,146 +8,95 @@ import (
 )
 
 var (
-	// defaultRawClient holds the raw datastore client shared across the app.
-	defaultRawClient *datastore.Client
-
-	globalOptions   []ClientOption
-	globalOptionsMu sync.RWMutex
+	defaultClient *Client
+	globalMu      sync.RWMutex
 )
 
-// Init sets the default client.
-func Init(c *datastore.Client) {
-	defaultRawClient = c
+// Init sets the default client and global options.
+func Init(c *datastore.Client, opts ...ClientOption) {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+
+	defaultClient = NewClient(c, opts...)
 }
 
-// SetGlobalOptions
-func SetGlobalOptions(opts ...ClientOption) {
-	globalOptionsMu.Lock()
+func getDefaultClient() *Client {
+	globalMu.RLock()
+	defer globalMu.RUnlock()
 
-	defer globalOptionsMu.Unlock()
+	if defaultClient == nil {
+		panic("harestore: default client is not initialized. Call harestore.Init() first")
+	}
 
-	globalOptions = make([]ClientOption, len(opts))
-
-	copy(globalOptions, opts)
-}
-
-// getGlobalOptions
-func getGlobalOptions() []ClientOption {
-	globalOptionsMu.RLock()
-
-	defer globalOptionsMu.RUnlock()
-
-	return globalOptions
+	return defaultClient
 }
 
 // RunInTransaction starts a transaction.
 func RunInTransaction(ctx context.Context, f func(ctx context.Context) error) error {
-	if _, ok := ExtractTransactionFromContext(ctx); ok {
-		// 既存のコンテキストのまま実行
-		err := f(ctx)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	_, err := defaultRawClient.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
-		ctxWithTx := WithTransaction(ctx, tx)
-
-		return f(ctxWithTx)
-	})
-
-	return err
+	return getDefaultClient().RunInTransaction(ctx, f)
 }
 
 // Get retrieves one entity by specifying id.
 func Get[T any, PT PEntity[T]](ctx context.Context, id string) (*T, error) {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).Get(ctx, id)
+	return getDefaultClient().Get[T, PT](ctx, id)
 }
 
 // Insert registers one entity.
 func Insert[T any, PT PEntity[T]](ctx context.Context, entity *T) (string, error) {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).Insert(ctx, entity)
+	return getDefaultClient().Insert[T, PT](ctx, entity)
 }
 
 // Update updates one entity.
 func Update[T any, PT PEntity[T]](ctx context.Context, entity *T) error {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).Update(ctx, entity)
+	return getDefaultClient().Update[T, PT](ctx, entity)
 }
 
 // DeleteByID deletes one entity by specifying id.
 func DeleteByID[T any, PT PEntity[T]](ctx context.Context, id string) error {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).DeleteByID(ctx, id)
+	return getDefaultClient().DeleteByID[T, PT](ctx, id)
 }
 
 // Delete deletes the specifying entity.
 func Delete[T any, PT PEntity[T]](ctx context.Context, entity *T) error {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).Delete(ctx, entity)
+	return getDefaultClient().Delete[T, PT](ctx, entity)
 }
 
 // GetMulti retrieves the entities by specifing ids.
 func GetMulti[T any, PT PEntity[T]](ctx context.Context, ids []string) ([]*T, error) {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).GetMulti(ctx, ids)
+	return getDefaultClient().GetMulti[T, PT](ctx, ids)
 }
 
 // InsertMulti inserts the specifing entities.
 func InsertMulti[T any, PT PEntity[T]](ctx context.Context, entities []*T) ([]string, error) {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).InsertMulti(ctx, entities)
+	return getDefaultClient().InsertMulti[T, PT](ctx, entities)
 }
 
 // UpdateMulti updates the specifing entities.
 func UpdateMulti[T any, PT PEntity[T]](ctx context.Context, entities []*T) error {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).UpdateMulti(ctx, entities)
+	return getDefaultClient().UpdateMulti[T, PT](ctx, entities)
 }
 
 // DeleteMultiByID deletes the entities by specifing ids.
 func DeleteMultiByID[T any, PT PEntity[T]](ctx context.Context, ids []string) error {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).DeleteMultiByID(ctx, ids)
+	return getDefaultClient().DeleteMultiByID[T, PT](ctx, ids)
 }
 
 // DeleteMulti deletes the entities.
 func DeleteMulti[T any, PT PEntity[T]](ctx context.Context, entities []*T) error {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).DeleteMulti(ctx, entities)
+	return getDefaultClient().DeleteMulti[T, PT](ctx, entities)
 }
 
 // RunQuery executes the query.
 func RunQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) ([]*T, error) {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).RunQuery(ctx, q)
+	return getDefaultClient().RunQuery[T, PT](ctx, q)
 }
 
 // RunQueryWithCursor executes the query.
 func RunQueryWithCursor[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query, cursor string) ([]*T, string, error) {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).RunQueryWithCursor(ctx, q, cursor)
+	return getDefaultClient().RunQueryWithCursor[T, PT](ctx, q, cursor)
 }
 
 // DeleteByQuery deletes entities retrieved by executing a query.
-func DeleteByQuery[T any, PT PEntity[T]](ctx context.Context, q *datastore.Query) error {
-	opts := getGlobalOptions()
-
-	return NewClient[T, PT](defaultRawClient, opts...).DeleteByQuery(ctx, q)
+func DeleteByQuery(ctx context.Context, q *datastore.Query) error {
+	return getDefaultClient().DeleteByQuery(ctx, q)
 }
