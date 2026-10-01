@@ -1,6 +1,6 @@
 module github.com/taknb2nch/harestore
 
-go 1.25.3
+go 1.27
 
 require (
 	cloud.google.com/go/datastore v1.22.0
